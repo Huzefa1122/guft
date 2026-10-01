@@ -14,6 +14,10 @@ It is for the people who want something more private than that: two people (or a
 
 It is deliberately small. Text, small files and voice notes between people who have exchanged an invite, over Tor, with the privacy settings already on.
 
+## The name
+
+*Guft* (گفت) is a Persian word that Urdu also uses. It means "said" or "spoke", the past tense of *goftan*, "to say". It is the root of *guftagu* (گفتگو), which means conversation: words said between people. That is all this app is for.
+
 ## What it does
 
 - **No servers and no accounts.** Each profile is a Tor v3 onion service hosted by the app itself. Contacts reach each other directly over Tor.
