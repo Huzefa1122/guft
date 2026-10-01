@@ -1,0 +1,8 @@
+/target
+**/target
+node_modules
+dist
+*.nochat
+*.vault
+.env*
+.DS_Store
