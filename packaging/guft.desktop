@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=guft
+Comment=Serverless post-quantum encrypted chat over Tor
+Exec=guft
+Icon=guft
+Categories=Network;Chat;InstantMessaging;
+Terminal=false
+StartupWMClass=guft

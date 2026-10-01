@@ -18,6 +18,10 @@ Licensed under AGPL-3.0-only. Built on Signal's `libsignal` (not affiliated with
 - **Everyday chat.** Delivery ticks, unread counts, copy or delete a message (an unsent one is cancelled), rename a contact (only you see it), clear a chat, verify safety numbers.
 - **Limits**: text ≤ 8 KiB, files ≤ 1 MB.
 
+## Documentation
+
+Install guides, how-tos, the security model and troubleshooting are in the [wiki](https://github.com/Huzefa1122/guft/wiki) (sources in `docs/wiki`). Prebuilt Linux binaries are on the [Releases](https://github.com/Huzefa1122/guft/releases) page.
+
 ## Invites
 
 There is no directory. To talk to someone you need two things, shared over different channels:
