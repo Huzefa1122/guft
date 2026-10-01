@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/nochat-core", "crates/nochat-store"]
+members = ["crates/guft-core", "crates/guft-store", "crates/guft-net", "crates/guft-app", "crates/guft-harden", "src-tauri"]
 
 [workspace.package]
 version = "0.1.0"
@@ -9,7 +9,7 @@ license = "AGPL-3.0-only"
 rust-version = "1.85"
 
 [workspace.dependencies]
-libsignal-protocol = { git = "https://github.com/signalapp/libsignal", tag = "v0.99.4" }
+libsignal-protocol = { git = "https://github.com/signalapp/libsignal", tag = "v0.103.1" }
 
 # Keep password hashing fast enough in debug/test builds.
 [profile.dev.package.argon2]

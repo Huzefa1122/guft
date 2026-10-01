@@ -1,0 +1,124 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 0.75rem;
+  --background: #f4f4f5;
+  --foreground: #0a0a0a;
+  --card: #ffffff;
+  --card-foreground: #0a0a0a;
+  --popover: #ffffff;
+  --popover-foreground: #0a0a0a;
+  --primary: #111111;
+  --primary-foreground: #ffffff;
+  --secondary: #ececec;
+  --secondary-foreground: #111111;
+  --muted: #ececec;
+  --muted-foreground: #6b6b6b;
+  --accent: #e5e5e5;
+  --accent-foreground: #111111;
+  --destructive: #c62828;
+  --border: #e0e0e0;
+  --input: #d4d4d4;
+  --ring: #111111;
+  --sidebar: #ffffff;
+  --chat-bg: #f0f0f0;
+  --bubble-out: #111111;
+  --bubble-in: #ffffff;
+  --tick: #9a9a9a;
+}
+
+.dark {
+  --background: #0a0a0a;
+  --foreground: #fafafa;
+  --card: #111111;
+  --popover: #1a1a1a;
+  --popover-foreground: #fafafa;
+  --primary: #fafafa;
+  --primary-foreground: #0a0a0a;
+  --secondary: #1f1f1f;
+  --secondary-foreground: #fafafa;
+  --muted: #1f1f1f;
+  --muted-foreground: #a3a3a3;
+  --accent: #262626;
+  --accent-foreground: #fafafa;
+  --destructive: #ef5350;
+  --border: #262626;
+  --input: #333333;
+  --ring: #fafafa;
+  --sidebar: #111111;
+  --chat-bg: #0a0a0a;
+  --bubble-out: #fafafa;
+  --bubble-in: #1a1a1a;
+  --tick: #8a8a8a;
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-chat: var(--chat-bg);
+  --color-bubble-out: var(--bubble-out);
+  --color-bubble-in: var(--bubble-in);
+  --color-tick: var(--tick);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    overflow: hidden;
+    user-select: none;
+  }
+  /* Message text and codes must be selectable and copyable. */
+  .selectable,
+  textarea,
+  input {
+    user-select: text;
+  }
+}
+
+/* A calm, low-contrast pattern behind the conversation. */
+.chat-wallpaper {
+  background-color: var(--chat-bg);
+  background-image: radial-gradient(color-mix(in oklab, var(--foreground) 5%, transparent) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+/* Per-sender name colour in rooms; the hue comes from the sender id. */
+.sender-name {
+  color: oklch(0.5 0.15 var(--sender-hue, 160));
+}
+.dark .sender-name {
+  color: oklch(0.78 0.12 var(--sender-hue, 160));
+}

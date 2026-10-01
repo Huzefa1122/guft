@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The main window may listen for app events. No filesystem, shell, HTTP or opener access.",
+  "windows": ["main"],
+  "permissions": ["core:event:default"]
+}

@@ -1,0 +1,29 @@
+[package]
+name = "guft-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+default-run = "guft"
+
+[[bin]]
+name = "guft"
+path = "src/main.rs"
+
+[features]
+# Serve the UI bundled into the binary instead of a dev server. On by default so a plain
+# `cargo build` produces a working app; use `--no-default-features` with `tauri dev`.
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+guft-app = { path = "../crates/guft-app" }
+guft-net = { path = "../crates/guft-net" }
+guft-core = { path = "../crates/guft-core" }
+guft-harden = { path = "../crates/guft-harden" }
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+data-encoding = "2.11.1"

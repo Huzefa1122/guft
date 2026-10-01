@@ -1,18 +1,20 @@
-# nochat — agent guide
+# guft — agent guide
 
 Serverless, Tor-based, post-quantum end-to-end encrypted chat. Tauri 2 desktop app (Rust core + React/shadcn UI). License: AGPL-3.0-only (required by libsignal).
 
 ## Layout
-- `crates/nochat-core` — crypto, vault, invites, padding, payloads. No networking, no UI. `#![forbid(unsafe_code)]`.
-- `crates/nochat-store` — SQLCipher chat history, `Profile` (create/unlock/save/lock), `Locker` (idle auto-lock, wrong-password backoff). One Argon2id run -> master key -> HKDF subkeys (`state`, `history`). Files are 0600, dir 0700; nothing readable on disk.
-- `crates/nochat-net` — (planned) Arti onion service + client, ≥5 isolated parallel circuits per contact, cover traffic.
-- `src-tauri` — (planned) Tauri shell, OS sandbox, IPC commands.
-- `ui` — (planned) Vite + React + Tailwind + shadcn/ui, strict CSP, no remote assets.
+- `crates/guft-core` — crypto, vault, invites, padding, payloads. No networking, no UI. `#![forbid(unsafe_code)]`.
+- `crates/guft-store` — SQLCipher chat history, `Profile` (create/unlock/save/lock), `Locker` (idle auto-lock, wrong-password backoff). One Argon2id run -> master key -> HKDF subkeys (`state`, `history`). Files are 0600, dir 0700; nothing readable on disk.
+- `crates/guft-net` — moves opaque frames. `cell` (fixed 2048-byte cells), `reassembly` (bounded), `link` (>=5 isolated circuits per contact, jittered cells, cover traffic, e2e acks, rate limits; generic over any stream), `mem` (in-memory network for tests), `tor` (Arti: onion service from a vault-held seed, in-memory keystore, vanguards, per-(contact,slot) isolation).
+- `crates/guft-app` — the application logic the UI calls: `App` (create/unlock/lock, invites, contacts, rooms, send text/files, retry outbox, events, idle auto-lock). Backends: `TorBackend` (production) and `MemBackend` (tests).
+- `crates/guft-harden` — process hardening: dumpable off, RLIMIT_CORE 0, no_new_privs, Landlock, seccomp deny list.
+- `src-tauri` — Tauri shell, strict CSP, OS sandbox (`sandbox.rs`), IPC commands for 1:1 chat and rooms. Binary: `guft`.
+- `ui` — Vite + React + Tailwind + shadcn/ui, strict CSP, no remote assets. Lock screen, welcome, sidebar (contacts and rooms), chat, composer, room dialogs. A dev mock (`lib/mock.ts`, passphrase `demo-passphrase`) runs under `pnpm dev` in a plain browser.
 
 ## Security rules (do not weaken)
 - Never write custom cryptographic primitives or protocols. Message crypto = `libsignal-protocol` (PQXDH ML-KEM-1024 + SPQR). The extra outer layer (`outer.rs`) only composes audited RustCrypto primitives.
 - Pin libsignal to an exact git tag; review every bump (no stable API from upstream).
-- Validate all network input against `limits.rs` BEFORE allocating or parsing. File ≤ 200,000 bytes, text ≤ 8 KiB.
+- Validate all network input against `limits.rs` BEFORE allocating or parsing. File ≤ 1 MB, text ≤ 8 KiB.
 - File names from peers go through `payload::check_file_name`; never join them to a path unchecked.
 - Secrets use `Zeroizing`; never log keys, plaintext, codes, onion keys or invites.
 - Tor path length is not customised (it fingerprints users). Fixed guard, random middles, isolated circuits, fixed-size padding, cover traffic, vanguards.
@@ -20,9 +22,12 @@ Serverless, Tor-based, post-quantum end-to-end encrypted chat. Tauri 2 desktop a
 - Invites are single-use, time-limited, and need the separate one-time code. Burn an invite only after a first message authenticates.
 
 ## Commands
-- `cargo test --workspace` — all tests
+- `cargo test --workspace` — all tests (offline)
+- `cargo test -p guft-net --test tor_live -- --ignored --nocapture` — real Tor end-to-end (slow; first delivery ~1-2 min). Set `GUFT_VANGUARDS=lite|disabled` to compare. `--test tor_baseline` checks plain Tor connectivity.
 - `cargo clippy --workspace --all-targets -- -D warnings`
-- `cargo audit` / `cargo deny check` — dependencies and licenses (must stay AGPL-compatible)
+- `cargo audit` — RustSec advisories (policy in `.cargo/audit.toml`; every ignore needs a written reason). `cargo deny check` for licenses (must stay AGPL-compatible)
+- `cargo build -p guft-desktop` — binary: `target/debug/guft`
+- `cd ui && pnpm typecheck && pnpm build`
 - ASAN build (nightly): `RUSTFLAGS=-Zsanitizer=address cargo +nightly test -Zbuild-std --target x86_64-unknown-linux-gnu`
 
 ## Conventions
@@ -31,3 +36,29 @@ Serverless, Tor-based, post-quantum end-to-end encrypted chat. Tauri 2 desktop a
 
 ## Lock model
 Unlocked = master key + decrypted engine in memory. `Locker::lock()` saves, closes the DB and drops (zeroizes) everything: manual button, idle timeout, window close. While locked the onion service is down (nothing can be decrypted).
+
+## Rooms
+Full mesh over the existing pairwise PQ sessions: no group key, no host. A room-bound invite makes the joiner a member and the inviter introduces them to everyone else. Only the creator may rename or remove; `open_invites` lets members invite. Removal works because nobody encrypts to the removed member. Room history key is `r-<hex>` (`messages`/`mark_read`/`delete_chat` accept it). A room message reads Delivered only when every member acked. Limits: 25 members, 50 rooms.
+
+## Operational notes (UI dev)
+- `WEBKIT_DISABLE_DMABUF_RENDERER=1` is set by default in `main.rs`; without it WebKitGTK can crash on Wayland.
+- `src-tauri` needs the default `custom-protocol` feature, otherwise the window tries the dev server at localhost:5173.
+- Demo mode: `pnpm dev` in a plain browser uses `lib/mock.ts` (passphrase `demo-passphrase`); it is never bundled into release builds.
+
+## Dependencies
+Always use the latest releases. Held back only by upstream: `rand` 0.9 (libsignal API), `rusqlite` 0.37 (Arti links the same libsqlite3-sys). Known upstream-only advisories: `paste`, `proc-macro-error2` (build-time macros, unmaintained), `rsa` (ignored with reason in `.cargo/audit.toml`). Re-run `cargo update` + `cargo audit` before every release.
+
+## Operational notes
+- Background work must use `with_bg` (does not extend the idle timer); only user-initiated calls use `with`.
+- Order on receive: decrypt -> history + `seen` -> save state -> ack. A crash can cause a re-delivery that `seen` absorbs, never a lost message.
+- Networks that reset TLS to some relays (seen in this sandbox) make a hosted service slow to become "fully reachable"; sending still works, so tests send with retries instead of waiting on that state.
+- rustls needs an explicit crypto provider: `guft-net` enables `rustls/ring`.
+
+## Temporary rooms (memory only)
+`RoomKind` is `Normal` | `Temp` (group) | `Direct` (one-to-one, created by `App::start_temp_chat`, reuses the open one, no invites/rename/remove, ends for both when either leaves). Only `Normal` rooms live in `State.rooms`; `Temp`/`Direct` rooms live in `Engine.temp`, which is never serialized (a test asserts the saved bytes do not change). The wire `RoomInvite` carries `kind` so the other side also keeps it in memory. In `guft-app`, temp messages go to `TempStore` and unsent frames to `TempOutbox` (`temp.rs`), never to the database or outbox table; temp ids start at `1<<62`. Both are wiped in `go_quiet` (lock, idle lock) and at unlock. Any new code that writes room messages or room control frames must check `is_temp_room` / `Delivery.temp` first (see `queue_ctl`, `is_temp_chat`). Chat key is still `r-<hex>`; `messages`/`mark_read`/`delete_chat`/`save_file` dispatch on whether the room is temp. Tests: `crates/guft-core/tests/rooms.rs`, `crates/guft-app/tests/temp_rooms.rs` (they unlock the profile from disk to prove nothing temporary was persisted).
+
+## Voice notes
+A voice note is a normal `File` named `voice-<unix>-<seconds>s.<webm|ogg|m4a>`; nothing special is on the wire. `ui/src/lib/voice.ts` records with `MediaRecorder` (Opus, 24 kbit/s, 60 s max), `VoicePlayer.tsx` decodes only on tap, `Bubble.tsx` recognises the name. Rust side: `App::file_bytes`, command `file_bytes`, CSP `media-src blob:`, and `main.rs` `on_permission_request` allows only the microphone. WebKitGTK on this machine supports Opus/WebM recording; playback could not be verified in a headless WebKit (see handoff).
+
+## Logo
+`ui/public/logo.svg` (favicon, standalone, light edge), `ui/src/components/Logo.tsx` (themed, same paths), `src-tauri/icons/*.png` (rendered from the SVG with `rsvg-convert -h N`, padded square). The letters are strokes, not font glyphs.

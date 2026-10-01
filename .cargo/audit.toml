@@ -1,0 +1,9 @@
+# cargo-audit policy. Every ignore needs a written reason and gets re-checked on each dependency bump.
+[advisories]
+ignore = [
+    # rsa "Marvin Attack" (timing side channel in RSA private-key operations).
+    # Pulled in only via arti-client -> tor-key-forge -> ssh-key-fork-arti. No fixed release exists.
+    # nochat never performs RSA private-key operations: identity is ed25519 (onion service) and
+    # X25519/ML-KEM (messages). Re-check on every Arti upgrade; remove once Arti drops or fixes it.
+    "RUSTSEC-2023-0071",
+]

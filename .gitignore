@@ -6,3 +6,4 @@ dist
 *.vault
 .env*
 .DS_Store
+src-tauri/gen
