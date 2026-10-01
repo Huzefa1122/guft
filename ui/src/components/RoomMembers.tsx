@@ -123,7 +123,8 @@ export function RoomMembersDialog({
           </Button>
         ) : null}
 
-        {addable.length > 0 && (room.mine || room.openInvites) && (
+        {/* A room with its own identity cannot take people from your main contacts: that would tie them together. */}
+        {!room.identity && addable.length > 0 && (room.mine || room.openInvites) && (
           <>
             <Separator />
             <section className="space-y-2">

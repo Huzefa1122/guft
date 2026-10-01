@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Lock, Search, Settings as SettingsIcon, ShieldCheck, UserPlus, UsersRound } from "lucide-react";
+import { Lock, MessageSquareDashed, Search, Settings as SettingsIcon, ShieldCheck, UserPlus, UsersRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -55,7 +55,7 @@ function preview(conv: Conv): string {
 }
 
 export function Sidebar({ onAdd, onAddRoom, onSettings }: { onAdd: () => void; onAddRoom: () => void; onSettings: () => void }) {
-  const { convs, selected, select, lock, status } = useApp();
+  const { convs, selected, select, lock, status, invitations, acceptInvitation, declineInvitation } = useApp();
   const [q, setQ] = useState("");
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -110,6 +110,37 @@ export function Sidebar({ onAdd, onAddRoom, onSettings }: { onAdd: () => void; o
         </div>
       </div>
 
+      {invitations.length > 0 && (
+        <section className="mx-3 mb-2 max-h-72 shrink-0 space-y-2 overflow-y-auto" aria-label="Room invitations">
+          {invitations.map((inv) => (
+            <div key={inv.room} className="rounded-lg border bg-card p-3 text-sm shadow-sm">
+              <div className="flex items-start gap-2.5">
+                <div className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full bg-primary/15 text-primary">
+                  {inv.temp ? <MessageSquareDashed className="size-4" /> : <UsersRound className="size-4" />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="leading-snug">
+                    <span className="font-medium">{inv.fromName || "A contact"}</span> invited you to{" "}
+                    <span className="font-medium">{inv.name}</span>
+                    {inv.temp && <span className="ml-1.5 rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Temp</span>}
+                  </p>
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground" title={inv.members.join(", ")}>
+                    With {inv.members.length > 0 ? inv.members.join(", ") : "no one else yet"}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Joining shows the people in it your name and address. Until you join, no one there knows about you.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-2.5 flex gap-2">
+                <Button size="sm" className="flex-1" onClick={() => void acceptInvitation(inv.room)}>Join</Button>
+                <Button size="sm" variant="outline" className="flex-1" onClick={() => void declineInvitation(inv.room)}>Decline</Button>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
+
       <div className="min-h-0 flex-1 overflow-y-auto" role="list" aria-label="Chats">
         {convs.length === 0 ? (
           <div className="mx-6 mt-16 flex flex-col items-center gap-3 text-center">
@@ -144,6 +175,7 @@ export function Sidebar({ onAdd, onAddRoom, onSettings }: { onAdd: () => void; o
                   <span className="flex min-w-0 items-center gap-1 truncate font-medium">
                     <span className="truncate">{conv.name}</span>
                     {conv.temp && <span className="shrink-0 rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Temp</span>}
+                    {conv.identity && <span className="shrink-0 rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground" title="You appear here under a separate identity">as {conv.identity}</span>}
                     {conv.kind === "contact" && conv.verified && <ShieldCheck className="size-3.5 shrink-0 text-primary" aria-label="Verified" />}
                   </span>
                   {conv.last && <span className={cn("shrink-0 text-xs", conv.unread ? "font-medium text-primary" : "text-muted-foreground")}>{listTime(conv.last.ts)}</span>}

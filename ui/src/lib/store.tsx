@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, errorText, type AppEvent, type Message, type RoomMember, type Status } from "./api";
+import { api, errorText, type AppEvent, type Message, type RoomInvitation, type RoomMember, type Status } from "./api";
 
 export type Net = "off" | "starting" | "online" | "error";
 export type Theme = "system" | "light" | "dark";
@@ -23,11 +23,17 @@ export type Conv = {
   temp: boolean;
   /** A one-to-one temporary chat. */
   direct: boolean;
+  /** Rooms with their own identity: the name you appear as there. */
+  identity: string | null;
 };
 
 type Ctx = {
   status: Status | null;
   convs: Conv[];
+  /** Rooms contacts invited you to; they wait for your answer. */
+  invitations: RoomInvitation[];
+  acceptInvitation: (room: string) => Promise<void>;
+  declineInvitation: (room: string) => Promise<void>;
   selected: string | null;
   select: (id: string | null) => void;
   current: Conv | null;
@@ -83,6 +89,7 @@ function writePref(key: string, value: string | number) {
 export function AppProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<Status | null>(null);
   const [convs, setConvs] = useState<Conv[]>([]);
+  const [invitations, setInvitations] = useState<RoomInvitation[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [hasMore, setHasMore] = useState(false);
@@ -124,18 +131,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const loadConvs = useCallback(async () => {
     try {
-      const [chats, rooms] = await Promise.all([api.chats(), api.rooms()]);
+      const [chats, rooms, invites] = await Promise.all([api.chats(), api.rooms(), api.roomInvitations()]);
+      setInvitations(invites);
       const list: Conv[] = [
         ...chats.map(
           ({ contact, last, unread }): Conv => ({
             kind: "contact", id: contact.id, name: contact.name, last, unread,
-            verified: contact.verified, mine: false, openInvites: false, members: [], temp: false, direct: false,
+            verified: contact.verified, mine: false, openInvites: false, members: [], temp: false, direct: false, identity: null,
           }),
         ),
         ...rooms.map(
           (r): Conv => ({
             kind: "room", id: r.id, name: r.name, last: r.last, unread: r.unread,
-            verified: false, mine: r.mine, openInvites: r.openInvites, members: r.members, temp: r.temp, direct: r.direct,
+            verified: false, mine: r.mine, openInvites: r.openInvites, members: r.members, temp: r.temp, direct: r.direct, identity: r.identity,
           }),
         ),
       ];
@@ -201,6 +209,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         case "locked":
           setNet("off");
           setConvs([]);
+          setInvitations([]);
           setMessages([]);
           setSelected(null);
           setStatus((s) => (s ? { ...s, unlocked: false } : s));
@@ -218,6 +227,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           void loadConvs();
           break;
         case "roomChanged":
+          void loadConvs();
+          break;
+        case "roomInvited":
+          toast("You have a new room invitation.");
           void loadConvs();
           break;
         case "roomRemoved":
@@ -328,10 +341,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [loadConvs, select, toast],
   );
 
+  const acceptInvitation = useCallback(
+    async (room: string) => {
+      try {
+        const id = await api.acceptRoomInvite(room);
+        await loadConvs();
+        select(id);
+        toast("You joined the room.");
+      } catch (e) {
+        toast(errorText(e), "error");
+        await loadConvs();
+      }
+    },
+    [loadConvs, select, toast],
+  );
+  const declineInvitation = useCallback(
+    async (room: string) => {
+      try {
+        await api.declineRoomInvite(room);
+      } catch (e) {
+        toast(errorText(e), "error");
+      }
+      await loadConvs();
+    },
+    [loadConvs, toast],
+  );
+
   const current = useMemo(() => convs.find((c) => c.id === selected) ?? null, [convs, selected]);
 
   const value: Ctx = {
-    status, convs, selected, select, current, messages, hasMore, loadOlder, net, netMessage, toasts, toast, dismiss,
+    status, convs, invitations, acceptInvitation, declineInvitation, selected, select, current, messages, hasMore, loadOlder, net, netMessage, toasts, toast, dismiss,
     refresh, theme, setTheme, idleMinutes, setIdleMinutes, unlock, createProfile, lock, send, sendFile, startTempChat,
   };
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;

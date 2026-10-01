@@ -5,10 +5,13 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+thiserror = "2.0.21"
+
+# The Linux sandbox. Other platforms build without it (and run without it).
+[target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
 landlock = "0.4"
 seccompiler = "0.5"
-thiserror = "2.0.21"
 
 [dev-dependencies]
 tempfile = "3"

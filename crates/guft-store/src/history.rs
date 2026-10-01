@@ -1,6 +1,7 @@
 //! Chat history in a SQLCipher database, keyed by a vault subkey.
 
 use std::fs::OpenOptions;
+#[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
@@ -59,6 +60,9 @@ pub struct ChatSummary {
     pub unread: u32,
 }
 
+/// A room invitation waiting for an answer: `(room, from, ts, payload)`.
+pub type PendingRoom = (String, String, u64, Vec<u8>);
+
 /// An encrypted frame waiting for delivery.
 #[derive(Clone, Debug)]
 pub struct OutboxItem {
@@ -76,7 +80,11 @@ impl History {
     pub fn open(path: &Path, key: &[u8; 32]) -> Result<Self> {
         // Create the file private before SQLite does (it would use the umask);
         // SQLite gives its journal files the same mode as the database.
-        OpenOptions::new().write(true).create(true).truncate(false).mode(0o600).open(path)?;
+        let mut opts = OpenOptions::new();
+        opts.write(true).create(true).truncate(false);
+        #[cfg(unix)]
+        opts.mode(0o600);
+        opts.open(path)?;
         let conn = Connection::open(path)?;
         let hex = Zeroizing::new(data_encoding::HEXLOWER.encode(key));
         let pragma = Zeroizing::new(format!("x'{}'", *hex));
@@ -110,7 +118,21 @@ impl History {
                 msg_id INTEGER NOT NULL,
                 frame BLOB NOT NULL,
                 attempts INTEGER NOT NULL DEFAULT 0
-             );",
+             );
+             -- A room invitation the user asked for (by using a room invite): who may send it.
+             CREATE TABLE IF NOT EXISTS room_expect(
+                contact TEXT NOT NULL,
+                room BLOB NOT NULL,
+                ts INTEGER NOT NULL,
+                PRIMARY KEY(contact, room)
+             ) WITHOUT ROWID;
+             -- Invitations from contacts that wait for the user to accept or decline.
+             CREATE TABLE IF NOT EXISTS room_pending(
+                room TEXT PRIMARY KEY,
+                from_id TEXT NOT NULL,
+                ts INTEGER NOT NULL,
+                payload BLOB NOT NULL
+             ) WITHOUT ROWID;",
         )?;
         // Files created before rooms existed lack the column.
         let has_sender = conn
@@ -296,6 +318,59 @@ impl History {
 
     pub fn outbox_done(&self, id: i64) -> Result<()> {
         self.conn.execute("DELETE FROM outbox WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
+    // ───── room invitations ─────
+
+    /// Remember that the user expects a room invitation for `room` from `contact`.
+    pub fn expect_room(&self, contact: &str, room: &[u8; 16], ts: u64) -> Result<()> {
+        self.conn.execute("INSERT OR REPLACE INTO room_expect(contact, room, ts) VALUES (?1, ?2, ?3)", params![contact, &room[..], ts as i64])?;
+        Ok(())
+    }
+
+    /// If the user expected this invitation (and not too long ago), use up the expectation.
+    pub fn take_expected_room(&self, contact: &str, room: &[u8; 16], not_before: u64) -> Result<bool> {
+        let n = self.conn.execute("DELETE FROM room_expect WHERE contact = ?1 AND room = ?2 AND ts >= ?3", params![contact, &room[..], not_before as i64])?;
+        Ok(n > 0)
+    }
+
+    /// Keep a received invitation until the user decides. `false` if it was already waiting.
+    pub fn add_pending_room(&self, room: &str, from: &str, ts: u64, payload: &[u8]) -> Result<bool> {
+        let n = self.conn.execute("INSERT OR IGNORE INTO room_pending(room, from_id, ts, payload) VALUES (?1, ?2, ?3, ?4)", params![room, from, ts as i64, payload])?;
+        Ok(n > 0)
+    }
+
+    /// Oldest first.
+    pub fn pending_rooms(&self) -> Result<Vec<PendingRoom>> {
+        let mut st = self.conn.prepare("SELECT room, from_id, ts, payload FROM room_pending ORDER BY ts, room")?;
+        let rows = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)? as u64, r.get::<_, Vec<u8>>(3)?)))?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
+    pub fn pending_room(&self, room: &str) -> Result<Option<(String, u64, Vec<u8>)>> {
+        Ok(self
+            .conn
+            .query_row("SELECT from_id, ts, payload FROM room_pending WHERE room = ?1", [room], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u64, r.get::<_, Vec<u8>>(2)?)))
+            .optional()?)
+    }
+
+    pub fn delete_pending_room(&self, room: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM room_pending WHERE room = ?1", [room])?;
+        Ok(())
+    }
+
+    /// Forget everything about a contact's invitations (they were removed).
+    pub fn forget_room_invites_from(&self, contact: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM room_pending WHERE from_id = ?1", [contact])?;
+        self.conn.execute("DELETE FROM room_expect WHERE contact = ?1", [contact])?;
+        Ok(())
+    }
+
+    /// Drop invitations and expectations older than `before`.
+    pub fn prune_room_invites(&self, before: u64) -> Result<()> {
+        self.conn.execute("DELETE FROM room_pending WHERE ts < ?1", [before as i64])?;
+        self.conn.execute("DELETE FROM room_expect WHERE ts < ?1", [before as i64])?;
         Ok(())
     }
 

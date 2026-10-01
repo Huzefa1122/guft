@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
 use std::io::Write;
+#[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -24,9 +25,17 @@ use zeroize::Zeroizing;
 
 use crate::backend::{NetworkBackend, Running};
 use crate::temp::{is_temp_id, TempOut, TempOutbox, TempStore, MAX_QUEUED_PER_CONTACT};
+use guft_core::Engine;
 use crate::{AppError, Event, Result};
 
 const SEEN_KEEP_SECS: u64 = 30 * 24 * 3600;
+/// A room invite we imported is expected to be followed by its room invitation for this long
+/// (a bit longer than the longest invite lifetime).
+const ROOM_EXPECT_SECS: u64 = 8 * 24 * 3600;
+/// Invitations nobody answered are dropped after this.
+const INVITATION_KEEP_SECS: u64 = 14 * 24 * 3600;
+const MAX_PENDING_INVITATIONS: usize = 30;
+const MAX_PENDING_PER_CONTACT: usize = 5;
 
 #[derive(Clone, Debug)]
 pub struct AppOptions {
@@ -76,6 +85,21 @@ pub struct MemberView {
     pub connected: bool,
 }
 
+/// A contact asked you to join a room. Nothing happens, and nobody in the room learns about you,
+/// until you accept.
+#[derive(Clone, Debug)]
+pub struct RoomInvitation {
+    /// The room's chat id (`r-<hex>`).
+    pub room: String,
+    pub from: String,
+    pub from_name: String,
+    pub name: String,
+    /// Names of the people already in it (not counting you).
+    pub members: Vec<String>,
+    pub temp: bool,
+    pub ts: u64,
+}
+
 /// A room as the UI sees it. `id` is the chat key used with `messages`, `mark_read`, etc.
 #[derive(Clone, Debug)]
 pub struct RoomView {
@@ -89,6 +113,8 @@ pub struct RoomView {
     pub temp: bool,
     /// A one-to-one temporary chat (`name` is the other person's name).
     pub direct: bool,
+    /// The separate identity you appear as in this room (its name), or `None` for your main one.
+    pub identity: Option<String>,
     pub members: Vec<MemberView>,
     pub last: Option<StoredMessage>,
     pub unread: u32,
@@ -222,6 +248,16 @@ fn apply_room_effects(p: &mut Profile, fx: RoomEffects, now: u64, events: &mut V
     Ok(())
 }
 
+/// Create a new file that only the current user can read (mode 0600 on Unix; on Windows the
+/// per-user folder ACL applies). Fails if it already exists.
+fn private_new_file(path: &Path) -> std::io::Result<std::fs::File> {
+    let mut opts = OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    opts.mode(0o600);
+    opts.open(path)
+}
+
 /// One frame to send: from the database outbox (`db_id`) or from memory.
 struct Job {
     db_id: Option<i64>,
@@ -295,7 +331,33 @@ impl<B: NetworkBackend> App<B> {
         self.unlock(passphrase).await
     }
 
+    /// Create a profile protected by a random 256-bit secret (a separate identity). Cheap to open.
+    pub async fn create_profile_for_random_secret(&self, secret: &str, display_name: &str) -> Result<()> {
+        let (dir, secret_owned, name) = (self.inner.dir.clone(), Zeroizing::new(secret.to_owned()), display_name.to_owned());
+        tokio::task::spawn_blocking(move || Profile::create_for_random_secret(&dir, &secret_owned, &name).and_then(Profile::lock)).await??;
+        self.unlock_in_background(secret).await
+    }
+
+    /// Like [`unlock`](Self::unlock), but the network starts in the background instead of
+    /// being waited for: the data is usable at once.
+    pub async fn unlock_in_background(&self, passphrase: &str) -> Result<()> {
+        self.unlock_inner(passphrase, false).await
+    }
+
     pub async fn unlock(&self, passphrase: &str) -> Result<()> {
+        self.unlock_inner(passphrase, true).await
+    }
+
+    /// Small extra data sealed inside the profile (the list of separate identities).
+    pub fn aux_read(&self, name: &str) -> Result<Option<Vec<u8>>> {
+        self.with_bg(|p| p.read_aux(name))
+    }
+
+    pub fn aux_write(&self, name: &str, data: &[u8]) -> Result<()> {
+        self.with_bg(|p| p.write_aux(name, data))
+    }
+
+    async fn unlock_inner(&self, passphrase: &str, wait_for_network: bool) -> Result<()> {
         if self.is_unlocked() {
             return Ok(());
         }
@@ -309,13 +371,19 @@ impl<B: NetworkBackend> App<B> {
         self.with(|p| {
             p.engine.set_onion(&onion).map_err(guft_store::Error::from)?;
             p.history.seen_prune(now_secs().saturating_sub(SEEN_KEEP_SECS))?;
+            p.history.prune_room_invites(now_secs().saturating_sub(INVITATION_KEEP_SECS))?;
             p.save()
         })?;
         let keep = self.with_bg(|p| Ok(p.engine.online_when_locked().then(|| p.engine.spool_public())))?;
         *self.inner.keep.lock().expect("poisoned") = keep;
         self.emit(Event::Unlocked);
         self.spawn_maintenance(epoch);
-        self.start_network().await;
+        if wait_for_network {
+            self.start_network().await;
+        } else {
+            let app = self.clone();
+            tokio::spawn(async move { app.start_network().await });
+        }
         self.sync_access();
         // Frames that arrived while locked (sealed to the spool key) are read now.
         let app = self.clone();
@@ -464,6 +532,7 @@ impl<B: NetworkBackend> App<B> {
         if std::fs::create_dir_all(&dir).is_err() {
             return false;
         }
+        #[cfg(unix)]
         let _ = std::fs::set_permissions(&dir, std::os::unix::fs::PermissionsExt::from_mode(0o700));
         let (mut count, mut bytes) = (0usize, 0u64);
         if let Ok(rd) = std::fs::read_dir(&dir) {
@@ -477,7 +546,7 @@ impl<B: NetworkBackend> App<B> {
         }
         let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
         let name = format!("{nanos:024}-{:016x}.frm", rand::random::<u64>());
-        let written = OpenOptions::new().write(true).create_new(true).mode(0o600).open(dir.join(name)).and_then(|mut f| {
+        let written = private_new_file(&dir.join(name)).and_then(|mut f| {
             f.write_all(&sealed)?;
             f.sync_all()
         });
@@ -571,23 +640,24 @@ impl<B: NetworkBackend> App<B> {
                 }
             }
             match &rec.payload {
-                Payload::RoomInvite { .. }
-                | Payload::RoomText { .. }
+                // Being added to a room by a contact needs your say-so: joining tells every member
+                // who you are. Only an invitation you asked for (you used a room invite), or a
+                // one-to-one temporary chat (nobody else is involved), goes through at once.
+                Payload::RoomInvite { room, kind, .. } => {
+                    let asked_for = p.history.take_expected_room(&rec.from, room, now.saturating_sub(ROOM_EXPECT_SECS))?;
+                    if asked_for || *kind == RoomKind::Direct {
+                        self.apply_room_payload(p, &rec.from, &rec.payload, now, &mut events)?;
+                    } else {
+                        self.hold_invitation(p, &rec.from, &rec.payload, now, &mut events)?;
+                    }
+                }
+                Payload::RoomText { .. }
                 | Payload::RoomFile { .. }
                 | Payload::Introduce { .. }
                 | Payload::Introduction { .. }
                 | Payload::RoomLeave { .. }
                 | Payload::RoomRemove { .. }
-                | Payload::RoomRename { .. } => {
-                    // A malformed or hostile room message must not stop us acknowledging the frame.
-                    let in_temp = |p: &Profile| room_id_of(&rec.payload).is_some_and(|r| p.engine.is_temp_room(&room_key(&r)));
-                    let was_temp = in_temp(p);
-                    if let Ok(fx) = p.engine.on_room_payload(&rec.from, &rec.payload, now) {
-                        let mut store = self.inner.temp.lock().expect("poisoned");
-                        let temp = was_temp || in_temp(p);
-                        apply_room_effects(p, fx, now, &mut events, &mut TempSink { store: &mut store, out: &self.inner.temp_out, temp })?;
-                    }
-                }
+                | Payload::RoomRename { .. } => self.apply_room_payload(p, &rec.from, &rec.payload, now, &mut events)?,
                 _ => {}
             }
             if let Payload::Text(_) | Payload::File { .. } = rec.payload {
@@ -613,6 +683,126 @@ impl<B: NetworkBackend> App<B> {
             Err(AppError::Locked) => self.spool_frame(frame),
             _ => false,
         }
+    }
+
+    /// Run a room payload through the room logic and carry out what it asks for.
+    fn apply_room_payload(&self, p: &mut Profile, from: &str, payload: &Payload, now: u64, events: &mut Vec<Event>) -> guft_store::Result<()> {
+        // A malformed or hostile room message must not stop us acknowledging the frame.
+        let in_temp = |p: &Profile| room_id_of(payload).is_some_and(|r| p.engine.is_temp_room(&room_key(&r)));
+        let was_temp = in_temp(p);
+        if let Ok(fx) = p.engine.on_room_payload(from, payload, now) {
+            let mut store = self.inner.temp.lock().expect("poisoned");
+            let temp = was_temp || in_temp(p);
+            apply_room_effects(p, fx, now, events, &mut TempSink { store: &mut store, out: &self.inner.temp_out, temp })?;
+        }
+        Ok(())
+    }
+
+    /// Keep an invitation for the user to answer. Group rooms go to the encrypted database;
+    /// temporary ones stay in memory.
+    fn hold_invitation(&self, p: &mut Profile, from: &str, payload: &Payload, now: u64, events: &mut Vec<Event>) -> guft_store::Result<()> {
+        let Payload::RoomInvite { room, kind, .. } = payload else { return Ok(()) };
+        let key = room_key(room);
+        if p.engine.rooms().iter().any(|r| r.id == key) || !p.engine.contacts().iter().any(|c| c.id == from) {
+            return Ok(());
+        }
+        let waiting = self.collect_invitations(p)?;
+        if waiting.len() >= MAX_PENDING_INVITATIONS || waiting.iter().filter(|i| i.from == from).count() >= MAX_PENDING_PER_CONTACT {
+            return Ok(());
+        }
+        let added = if *kind == RoomKind::Normal {
+            p.history.add_pending_room(&key, from, now, &payload.encode()?)?
+        } else {
+            self.inner.temp.lock().expect("poisoned").add_invite(&key, from, now, payload.clone())
+        };
+        if added {
+            events.push(Event::RoomInvited { room: chat_key(&key) });
+        }
+        Ok(())
+    }
+
+    fn collect_invitations(&self, p: &Profile) -> guft_store::Result<Vec<RoomInvitation>> {
+        let names: HashMap<String, String> = p.engine.contacts().into_iter().map(|c| (c.id, c.name)).collect();
+        let view = |key: &str, from: &str, ts: u64, payload: &Payload| match payload {
+            Payload::RoomInvite { name, kind, members, .. } => Some(RoomInvitation {
+                room: chat_key(key),
+                from: from.to_owned(),
+                from_name: names.get(from).cloned().unwrap_or_default(),
+                name: name.clone(),
+                members: members.iter().map(|m| m.name.clone()).collect(),
+                temp: *kind != RoomKind::Normal,
+                ts,
+            }),
+            _ => None,
+        };
+        let mut out = Vec::new();
+        for (key, from, ts, blob) in p.history.pending_rooms()? {
+            if let Some(v) = Payload::decode(blob).ok().and_then(|pl| view(&key, &from, ts, &pl)) {
+                out.push(v);
+            }
+        }
+        for (key, inv) in self.inner.temp.lock().expect("poisoned").invites() {
+            if let Some(v) = view(&key, &inv.from, inv.ts, &inv.payload) {
+                out.push(v);
+            }
+        }
+        out.sort_by_key(|i| (i.ts, i.room.clone()));
+        Ok(out)
+    }
+
+    /// Take a waiting invitation out of wherever it is kept.
+    fn take_invitation(&self, p: &mut Profile, key: &str) -> guft_store::Result<Option<(String, Payload)>> {
+        if let Some((from, _ts, blob)) = p.history.pending_room(key)? {
+            p.history.delete_pending_room(key)?;
+            return Ok(Payload::decode(blob).ok().map(|pl| (from, pl)));
+        }
+        Ok(self.inner.temp.lock().expect("poisoned").take_invite(key).map(|i| (i.from, i.payload)))
+    }
+
+    /// Rooms contacts have invited you to, oldest first.
+    pub fn room_invitations(&self) -> Result<Vec<RoomInvitation>> {
+        self.with(|p| self.collect_invitations(p))
+    }
+
+    /// Join. Only now do the members learn about you. Returns the room's chat id.
+    pub fn accept_room_invite(&self, room: &str) -> Result<String> {
+        let key = room_of(room)?.to_owned();
+        let mut events = Vec::new();
+        self.with(|p| {
+            let Some((from, payload)) = self.take_invitation(p, &key)? else {
+                return Err(guft_core::Error::Invalid("that invitation is gone").into());
+            };
+            if !p.engine.contacts().iter().any(|c| c.id == from) {
+                return Err(guft_core::Error::UnknownContact.into());
+            }
+            self.apply_room_payload(p, &from, &payload, now_secs(), &mut events)?;
+            if !p.engine.rooms().iter().any(|r| r.id == key) {
+                return Err(guft_core::Error::Invalid("that invitation is no longer valid").into());
+            }
+            p.save()
+        })?;
+        for e in events {
+            self.emit(e);
+        }
+        self.inner.wake.notify_one();
+        Ok(chat_key(&key))
+    }
+
+    /// Say no. The inviter is told quietly (as if you left) so they stop counting you in.
+    pub fn decline_room_invite(&self, room: &str) -> Result<()> {
+        let key = room_of(room)?.to_owned();
+        self.with(|p| {
+            if let Some((from, Payload::RoomInvite { room: id, kind, .. })) = self.take_invitation(p, &key)? {
+                if p.engine.contacts().iter().any(|c| c.id == from) {
+                    queue_ctl(p, &self.inner.temp_out, kind != RoomKind::Normal, &from, &Payload::RoomLeave { room: id })?;
+                    p.save()?;
+                }
+            }
+            Ok(())
+        })?;
+        self.emit(Event::RoomChanged { room: chat_key(&key) });
+        self.inner.wake.notify_one();
+        Ok(())
     }
 
     fn schedule_flushes(&self) {
@@ -753,7 +943,12 @@ impl<B: NetworkBackend> App<B> {
         let (id, name) = tokio::task::spawn_blocking(move || {
             app.with(|p| {
                 let now = now_secs();
+                let room = Engine::invite_room(&invite);
                 let id = p.engine.add_contact(&invite, &code, now).map_err(guft_store::Error::from)?;
+                // Using a room invite is asking to join that room: its invitation needs no second yes.
+                if let Some(room) = room {
+                    p.history.expect_room(&id, &room, now)?;
+                }
                 let hello = p.engine.hello_for(&id).map_err(guft_store::Error::from)?;
                 let frame = p.engine.encrypt(&id, &hello).map_err(guft_store::Error::from)?;
                 p.history.outbox_push(&id, 0, &frame)?;
@@ -785,6 +980,8 @@ impl<B: NetworkBackend> App<B> {
             p.engine.remove_contact(contact);
             p.history.delete_chat(contact)?;
             self.inner.temp_out.drop_contact(contact);
+            self.inner.temp.lock().expect("poisoned").drop_invites_from(contact);
+            p.history.forget_room_invites_from(contact)?;
             p.save()
         })
         .inspect(|_| self.sync_access())
@@ -855,6 +1052,12 @@ impl<B: NetworkBackend> App<B> {
         Ok(id)
     }
 
+    /// Whether anything encrypted is still waiting to be sent (queued messages, a leave notice...).
+    pub fn has_unsent(&self) -> Result<bool> {
+        let on_disk = self.with_bg(|p| Ok(!p.history.outbox_chats()?.is_empty()))?;
+        Ok(on_disk || !self.inner.temp_out.contacts().is_empty())
+    }
+
     /// Delete one message from this device. If it has not been sent yet, it is never sent.
     pub fn delete_message(&self, msg_id: i64) -> Result<()> {
         self.with(|p| {
@@ -913,6 +1116,7 @@ impl<B: NetworkBackend> App<B> {
             open_invites: info.open_invites,
             temp,
             direct,
+            identity: None,
             members,
             last,
             unread,
@@ -1123,7 +1327,7 @@ impl<B: NetworkBackend> App<B> {
         };
         for n in 0..1000 {
             let candidate = if n == 0 { name.clone() } else { format!("{stem} ({n}){ext}") };
-            match OpenOptions::new().write(true).create_new(true).mode(0o600).open(dir.join(&candidate)) {
+            match private_new_file(&dir.join(&candidate)) {
                 Ok(mut f) => {
                     f.write_all(&data)?;
                     f.sync_all()?;

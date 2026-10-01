@@ -22,7 +22,7 @@ guft is **pre-release and unaudited**. Do not rely on it against a determined, w
 
 ## Known limitations
 
-- A contact can add you to a **room** and you join automatically, which also introduces you to its members. Room invitations will get an accept step.
+- Joining a room is a real exposure: members learn your name, your Tor address and your identity key, and each becomes a contact until you remove them. You are asked before joining, but leaving a room does not undo what the members already know.
 - Room messages reach a member only if the sender and that member are online at overlapping times; relaying of missed messages is planned.
 - No passphrase change, no built-in backup or export, no schema versioning of the saved profile yet.
 - Linux only; other platforms would currently run without the sandbox.

@@ -10,8 +10,9 @@ use guft_core::Payload;
 use guft_store::{Body, Status, StoredMessage};
 use zeroize::{Zeroize, Zeroizing};
 
-/// Ids at or above this are temporary messages (database ids never get near it).
-pub const TEMP_ID_BASE: i64 = 1 << 62;
+/// Ids at or above this are temporary messages (database ids never get near it). Kept far below
+/// 2^53 so the UI, which reads ids as JavaScript numbers, never loses precision.
+pub const TEMP_ID_BASE: i64 = 1 << 40;
 const MAX_MSGS_PER_ROOM: usize = 500;
 const MAX_BYTES: usize = 64 * 1024 * 1024;
 /// Most unsent temporary frames kept per contact.
@@ -39,8 +40,17 @@ impl Drop for TempMsg {
     }
 }
 
+/// An invitation to a memory-only room that waits for the user. Like everything temporary,
+/// it is never written to disk.
+pub struct PendingInvite {
+    pub from: String,
+    pub ts: u64,
+    pub payload: Payload,
+}
+
 #[derive(Default)]
 pub struct TempStore {
+    invites: HashMap<String, PendingInvite>,
     rooms: HashMap<String, Vec<TempMsg>>,
     next: i64,
     bytes: usize,
@@ -127,8 +137,30 @@ impl TempStore {
         }
     }
 
+    /// Hold an invitation to a temporary room. `false` if one for it is already waiting.
+    pub fn add_invite(&mut self, room: &str, from: &str, ts: u64, payload: Payload) -> bool {
+        if self.invites.contains_key(room) {
+            return false;
+        }
+        self.invites.insert(room.to_owned(), PendingInvite { from: from.to_owned(), ts, payload });
+        true
+    }
+
+    pub fn invites(&self) -> Vec<(String, &PendingInvite)> {
+        self.invites.iter().map(|(k, v)| (k.clone(), v)).collect()
+    }
+
+    pub fn take_invite(&mut self, room: &str) -> Option<PendingInvite> {
+        self.invites.remove(room)
+    }
+
+    pub fn drop_invites_from(&mut self, contact: &str) {
+        self.invites.retain(|_, v| v.from != contact);
+    }
+
     /// Forget everything (dropping zeroizes the text and file bytes).
     pub fn clear(&mut self) {
+        self.invites.clear();
         self.rooms.clear();
         self.bytes = 0;
     }

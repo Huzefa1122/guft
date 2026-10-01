@@ -13,6 +13,7 @@ fn env_path(var: &str) -> Option<PathBuf> {
 }
 
 impl Dirs {
+    #[cfg(not(windows))]
     pub fn resolve() -> Self {
         let home = env_path("HOME").unwrap_or_else(|| PathBuf::from("/tmp"));
         let data = env_path("XDG_DATA_HOME").unwrap_or_else(|| home.join(".local/share"));
@@ -25,6 +26,17 @@ impl Dirs {
         if let Some(rt) = env_path("XDG_RUNTIME_DIR") {
             write.push(rt);
         }
+        Self { profile, downloads, write }
+    }
+
+    /// Windows: data under `%LOCALAPPDATA%\guft`, saved files under `Downloads\guft`.
+    #[cfg(windows)]
+    pub fn resolve() -> Self {
+        let home = env_path("USERPROFILE").unwrap_or_else(|| PathBuf::from("."));
+        let data = env_path("LOCALAPPDATA").unwrap_or_else(|| home.join("AppData").join("Local"));
+        let profile = env_path("GUFT_PROFILE_DIR").unwrap_or_else(|| data.join("guft"));
+        let downloads = home.join("Downloads").join("guft");
+        let write = vec![profile.clone(), downloads.clone()];
         Self { profile, downloads, write }
     }
 }

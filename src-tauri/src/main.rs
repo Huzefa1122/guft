@@ -8,17 +8,16 @@ mod commands;
 mod dto;
 mod sandbox;
 
-use std::sync::Arc;
 use std::time::Duration;
 
-use guft_app::{App, AppOptions, TorBackend};
+use guft_app::{AppOptions, Hub, TorBackend};
 use guft_net::NetConfig;
 use tauri::{Emitter, Manager, WindowEvent};
 
-pub type Shell = App<TorBackend>;
+pub type Shell = Hub<TorBackend>;
 
 pub struct State {
-    pub app: Arc<Shell>,
+    pub hub: Shell,
     pub data_dir: std::path::PathBuf,
 }
 
@@ -34,9 +33,9 @@ fn main() {
     // Before any secret exists and before the WebView spawns its helpers (they inherit this).
     sandbox::apply(&dirs);
 
-    let backend = TorBackend::new(&dirs.profile, NetConfig::default());
-    let app = Arc::new(App::new(dirs.profile.clone(), backend, AppOptions::default()));
-    let state = State { app: app.clone(), data_dir: dirs.profile.clone() };
+    // The hub starts background tasks, so it is built inside the runtime Tauri will use.
+    let hub = tauri::async_runtime::block_on(async { Hub::new(dirs.profile.clone(), AppOptions::default(), |dir| TorBackend::new(dir, NetConfig::default())) });
+    let state = State { hub: hub.clone(), data_dir: dirs.profile.clone() };
 
     tauri::Builder::default()
         .manage(state)
@@ -52,7 +51,7 @@ fn main() {
             }
             // Forward app events to the window; they carry ids, never message text.
             let handle = tauri_app.handle().clone();
-            let mut rx = app.subscribe();
+            let mut rx = hub.subscribe();
             tauri::async_runtime::spawn(async move {
                 while let Ok(event) = rx.recv().await {
                     let _ = handle.emit("guft://event", dto::EventDto::from(event));
@@ -70,7 +69,7 @@ fn main() {
                 let handle = window.app_handle().clone();
                 tauri::async_runtime::spawn(async move {
                     let state = handle.state::<State>();
-                    let _ = tokio::time::timeout(Duration::from_secs(10), state.app.lock()).await;
+                    let _ = tokio::time::timeout(Duration::from_secs(10), state.hub.lock()).await;
                     handle.exit(0);
                 });
             }
@@ -89,6 +88,9 @@ fn main() {
             commands::send_file,
             commands::create_room,
             commands::start_temp_chat,
+            commands::room_invitations,
+            commands::accept_room_invite,
+            commands::decline_room_invite,
             commands::room_invite,
             commands::add_to_room,
             commands::leave_room,
@@ -98,6 +100,7 @@ fn main() {
             commands::send_room_file,
             commands::new_invite,
             commands::add_contact,
+            commands::invite_is_room,
             commands::safety_number,
             commands::set_verified,
             commands::remove_contact,

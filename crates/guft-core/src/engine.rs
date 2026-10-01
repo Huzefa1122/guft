@@ -352,6 +352,7 @@ impl Engine {
             kyber: kyber.public_key.serialize().to_vec(),
             kyber_sig: kyber_sig.to_vec(),
             identity: pair.identity_key().serialize().to_vec(),
+            room,
         };
         let text = invite.encode()?;
         self.st.invites.insert(
@@ -392,6 +393,12 @@ impl Engine {
 
     /// Import an invite plus its one-time code. Afterwards, send a
     /// [`Payload::Hello`] first.
+    /// The room an invite leads into, if it is a room invite. Lets the app recognise the
+    /// room invitation that follows as one the user asked for.
+    pub fn invite_room(invite: &str) -> Option<[u8; 16]> {
+        InviteV1::decode(invite).ok().and_then(|i| i.room)
+    }
+
     pub fn add_contact(&mut self, invite: &str, code: &str, now: u64) -> Result<ContactId> {
         let inv = InviteV1::decode(invite)?;
         if inv.expires_at <= now {

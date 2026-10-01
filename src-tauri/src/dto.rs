@@ -1,7 +1,7 @@
 //! Plain data sent to the UI. Never contains keys; message text only where the
 //! UI asked for that conversation.
 
-use guft_app::{Body, ChatView, ContactView, Event, RoomView, Status, StoredMessage};
+use guft_app::{Body, ChatView, ContactView, Event, RoomInvitation, RoomView, Status, StoredMessage};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -92,6 +92,8 @@ pub struct RoomDto {
     pub temp: bool,
     /// A one-to-one temporary chat; `name` is the other person's name.
     pub direct: bool,
+    /// The separate identity you appear as in this room, if it has its own (its name).
+    pub identity: Option<String>,
     pub members: Vec<RoomMemberDto>,
     pub unread: u32,
     pub last: Option<MessageDto>,
@@ -118,9 +120,29 @@ impl From<RoomView> for RoomDto {
             open_invites: r.open_invites,
             temp: r.temp,
             direct: r.direct,
+            identity: r.identity,
             unread: r.unread,
             last: r.last.map(Into::into),
         }
+    }
+}
+
+/// A contact asked you to join a room; nothing has happened until you accept.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoomInvitationDto {
+    pub room: String,
+    pub from: String,
+    pub from_name: String,
+    pub name: String,
+    pub members: Vec<String>,
+    pub temp: bool,
+    pub ts: u64,
+}
+
+impl From<RoomInvitation> for RoomInvitationDto {
+    fn from(i: RoomInvitation) -> Self {
+        Self { room: i.room, from: i.from, from_name: i.from_name, name: i.name, members: i.members, temp: i.temp, ts: i.ts }
     }
 }
 
@@ -158,6 +180,7 @@ pub enum EventDto {
     SendFailed { chat: String, msg_id: i64 },
     RoomChanged { room: String },
     RoomRemoved { room: String },
+    RoomInvited { room: String },
 }
 
 impl From<Event> for EventDto {
@@ -173,6 +196,7 @@ impl From<Event> for EventDto {
             Event::SendFailed { chat, msg_id } => Self::SendFailed { chat, msg_id },
             Event::RoomChanged { room } => Self::RoomChanged { room },
             Event::RoomRemoved { room } => Self::RoomRemoved { room },
+            Event::RoomInvited { room } => Self::RoomInvited { room },
         }
     }
 }

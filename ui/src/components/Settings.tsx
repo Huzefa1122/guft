@@ -42,12 +42,14 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[min(85vh,34rem)] max-w-md flex-col gap-0 overflow-hidden p-0">
+        <DialogHeader className="shrink-0 px-6 pt-6 pb-3">
           <DialogTitle>Settings</DialogTitle>
           <DialogDescription>Stored on this device only.</DialogDescription>
         </DialogHeader>
 
+        {/* Only the body scrolls, and only vertically: the header stays put and nothing spills sideways. */}
+        <div className="min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto px-6 pb-6">
         <section className="space-y-3">
           <h3 className="text-sm font-medium">Privacy &amp; locking</h3>
           <div className="flex items-center justify-between gap-4">
@@ -100,6 +102,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
           <p>Signal-protocol encryption with a post-quantum handshake (ML-KEM-1024 + X25519) and a post-quantum ratchet, wrapped in a second layer keyed from your invite code, sent over Tor onion services in fixed-size cells across several circuits.</p>
           <p>Open source (AGPL-3.0). Not independently audited yet.</p>
         </section>
+        </div>
       </DialogContent>
     </Dialog>
   );

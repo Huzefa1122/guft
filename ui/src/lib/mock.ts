@@ -1,6 +1,6 @@
 // Development-only stand-in for the Rust backend, so the UI can be built and previewed
 // with `pnpm dev` in a plain browser. Passphrase: "demo-passphrase". Never shipped.
-import type { Api, AppEvent, Chat, Message, Room, RoomMember, Status } from "./api";
+import type { Api, AppEvent, Chat, Message, Room, RoomInvitation, RoomMember, Status } from "./api";
 
 const now = () => Math.floor(Date.now() / 1000);
 const handlers = new Set<(e: AppEvent) => void>();
@@ -22,7 +22,7 @@ const m = (id: number, chat: string, ago: number, outgoing: boolean, text: strin
   id, chat, ts: now() - ago, outgoing, kind: "text", text, fileName: null, fileSize: null, status: st, sender,
 });
 
-type MockRoom = Pick<Room, "id" | "name" | "creator" | "mine" | "openInvites"> & { members: RoomMember[]; unread: number; temp?: boolean; direct?: boolean };
+type MockRoom = Pick<Room, "id" | "name" | "creator" | "mine" | "openInvites"> & { members: RoomMember[]; unread: number; temp?: boolean; direct?: boolean; identity?: string | null };
 
 const rooms: MockRoom[] = [
   {
@@ -88,10 +88,15 @@ const roomsNow = (): Room[] =>
     openInvites: r.openInvites,
     temp: r.temp ?? false,
     direct: r.direct ?? false,
+    identity: r.identity ?? null,
     members: r.members,
     last: store[r.id]?.at(-1) ?? null,
     unread: r.unread,
   }));
+
+const invitations: RoomInvitation[] = [
+  { room: "r-5b2e90c1d7a34f86a1b2c3d4e5f60718", from: "p3", fromName: "Priya Raman", name: "Book club", members: ["Priya Raman", "Amina Khan", "Sam"], temp: false, ts: now() - 600 },
+];
 
 const wait = <T>(v: T, ms = 120) => new Promise<T>((r) => setTimeout(() => r(v), ms));
 
@@ -157,13 +162,32 @@ export const mockApi: Api = {
   },
   sendText: async (c, text) => send(c, text),
   sendFile: async (c, name, data) => sendFile(c, name, data),
-  createRoom: async (name, openInvites, temp) => {
+  createRoom: async (name, openInvites, temp, identity) => {
     await wait(null, 300);
     const id = `r-${Math.random().toString(16).slice(2).padEnd(8, "0")}${nextId++}`;
-    rooms.push({ id, name, creator: "me", mine: true, openInvites, unread: 0, members: [], temp: temp ?? false });
+    rooms.push({ id, name, creator: "me", mine: true, openInvites, unread: 0, members: [], temp: temp ?? false, identity: identity?.trim() || null });
     store[id] = [];
     emit({ type: "roomChanged", room: id });
     return id;
+  },
+  roomInvitations: () => wait([...invitations]),
+  acceptRoomInvite: async (room) => {
+    await wait(null, 300);
+    const i = invitations.findIndex((x) => x.room === room);
+    if (i < 0) throw "that invitation is gone";
+    const inv = invitations.splice(i, 1)[0]!;
+    rooms.push({
+      id: inv.room, name: inv.name, creator: inv.from, mine: false, openInvites: true, unread: 0, temp: inv.temp,
+      members: inv.members.map((n, k) => ({ id: `m${k}`, name: n, online: true, isCreator: n === inv.fromName })),
+    });
+    store[inv.room] = [];
+    emit({ type: "roomChanged", room: inv.room });
+    return inv.room;
+  },
+  declineRoomInvite: async (room) => {
+    const i = invitations.findIndex((x) => x.room === room);
+    if (i >= 0) invitations.splice(i, 1);
+    emit({ type: "roomChanged", room });
   },
   startTempChat: async (contact) => {
     const existing = rooms.find((r) => r.direct && r.members[0]?.id === contact);
@@ -210,8 +234,23 @@ export const mockApi: Api = {
     invite: `guft1:${btoa(`${label}:${ttl}:${"x".repeat(220)}`).replace(/=/g, "")}`,
     code: "k3vq-9mzt-bw7x",
   }),
-  addContact: async (invite, code) => {
+  inviteIsRoom: async (invite) => {
+    try {
+      return atob(invite.replace(/^guft1:/, "").replace(/-/g, "+").replace(/_/g, "/")).startsWith("r-");
+    } catch {
+      return false;
+    }
+  },
+  addContact: async (invite, code, identity) => {
     await wait(null, 500);
+    if (identity) {
+      if (!invite.startsWith("guft1:") || code.replace(/\W/g, "").length < 12) throw "invalid input: not a guft invite";
+      const id = `p1~r-${Math.random().toString(16).slice(2).padEnd(8, "0")}${nextId++}`;
+      rooms.push({ id, name: "New room", creator: "x", mine: false, openInvites: true, unread: 0, identity, members: [{ id: "x", name: "Host", online: true, isCreator: true }] });
+      store[id] = [];
+      emit({ type: "roomChanged", room: id });
+      return id;
+    }
     if (!invite.startsWith("guft1:") || code.replace(/\W/g, "").length < 12) throw "invalid input: not a guft invite";
     const id = `n${nextId++}`;
     contacts.push({ id, name: "New contact", onion: onion("n"), verified: false });

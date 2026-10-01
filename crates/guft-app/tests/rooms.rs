@@ -63,6 +63,12 @@ async fn join(joiner: &Peer, inviter: &Peer, room: &str, label: &str) {
     joiner.app.add_contact(&invite, &code).await.unwrap();
 }
 
+/// Wait for `room`'s invitation to reach `p` and accept it.
+async fn accept(p: &Peer, room: &str) {
+    eventually("the invitation arrives", || p.app.room_invitations().is_ok_and(|v| v.iter().any(|i| i.room == room))).await;
+    p.app.accept_room_invite(room).unwrap();
+}
+
 fn texts(p: &Peer, room: &str) -> Vec<(String, Option<String>)> {
     let mut v: Vec<_> = p
         .app
@@ -210,6 +216,7 @@ async fn existing_contacts_can_be_added_and_closed_rooms_restrict_invites() {
 
     let carol_in_alice = contact_id(&alice, "Carol");
     alice.app.add_contact_to_room(&room, &carol_in_alice).unwrap();
+    accept(&carol, &room).await;
     eventually("everyone connected", || fully_connected(&alice, 2) && fully_connected(&bob, 2) && fully_connected(&carol, 2)).await;
     assert!(alice.app.add_contact_to_room(&room, &carol_in_alice).is_err(), "already a member");
 }

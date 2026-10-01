@@ -5,11 +5,13 @@
 
 mod app;
 mod backend;
+mod hub;
 mod temp;
 mod tor_backend;
 
-pub use app::{App, AppOptions, ChatView, ContactView, MemberView, RoomView};
+pub use app::{App, AppOptions, ChatView, ContactView, MemberView, RoomInvitation, RoomView};
 pub use backend::{NetworkBackend, Running};
+pub use hub::{ns_chat, ns_msg, split_chat, split_msg, Hub, MAX_PERSONAS};
 pub use tor_backend::TorBackend;
 #[cfg(feature = "mem")]
 pub use backend::MemBackend;
@@ -70,4 +72,6 @@ pub enum Event {
     /// A room appeared, or its members or name changed.
     RoomChanged { room: String },
     RoomRemoved { room: String },
+    /// A contact invited you to a room; it waits for your answer.
+    RoomInvited { room: String },
 }

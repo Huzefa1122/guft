@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, MessageSquareDashed, UsersRound } from "lucide-react";
+import { Loader2, MessageSquareDashed, UserRoundCog, UsersRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,8 @@ export function CreateRoomDialog({ open, onOpenChange }: { open: boolean; onOpen
   const [name, setName] = useState("");
   const [openInvites, setOpenInvites] = useState(true);
   const [temp, setTemp] = useState(false);
+  const [separate, setSeparate] = useState(false);
+  const [alias, setAlias] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -19,13 +21,15 @@ export function CreateRoomDialog({ open, onOpenChange }: { open: boolean; onOpen
       setName("");
       setOpenInvites(true);
       setTemp(false);
+      setSeparate(false);
+      setAlias("");
     }
   }, [open]);
 
   async function create() {
     setBusy(true);
     try {
-      const id = await api.createRoom(name.trim(), openInvites, temp);
+      const id = await api.createRoom(name.trim(), openInvites, temp, separate ? alias.trim() : undefined);
       await refresh();
       select(id);
       toast(temp ? "Temporary room created. It disappears when guft locks or closes." : "Room created. Invite the people you want in it.");
@@ -71,10 +75,29 @@ export function CreateRoomDialog({ open, onOpenChange }: { open: boolean; onOpen
             </div>
             <Switch id="room-temp" checked={temp} onCheckedChange={setTemp} />
           </div>
+          <div className="space-y-3">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <label htmlFor="room-identity" className="flex items-center gap-1.5 text-sm">
+                  <UserRoundCog className="size-4" /> Separate identity
+                </label>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Appear in this room as someone else: a new name, new keys and a new Tor address, with nothing linking you to your other chats. It is erased when you leave. People join with a room invite and code.
+                </p>
+              </div>
+              <Switch id="room-identity" checked={separate} onCheckedChange={setSeparate} />
+            </div>
+            {separate && (
+              <div>
+                <label htmlFor="room-alias" className="mb-1.5 block text-sm font-medium">Your name in this room</label>
+                <Input id="room-alias" value={alias} maxLength={48} onChange={(e) => setAlias(e.target.value)} placeholder="e.g. Ghost" />
+              </div>
+            )}
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>
-          <Button onClick={() => void create()} disabled={busy || !name.trim()}>
+          <Button onClick={() => void create()} disabled={busy || !name.trim() || (separate && !alias.trim())}>
             {busy && <Loader2 className="size-4 animate-spin" />} Create room
           </Button>
         </DialogFooter>

@@ -2491,7 +2491,7 @@ dependencies = [
 
 [[package]]
 name = "guft-app"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "data-encoding",
  "futures",
@@ -2499,7 +2499,9 @@ dependencies = [
  "guft-core",
  "guft-net",
  "guft-store",
+ "postcard",
  "rand 0.9.5",
+ "serde",
  "sha2 0.11.0",
  "tempfile",
  "thiserror 2.0.21",
@@ -2509,7 +2511,7 @@ dependencies = [
 
 [[package]]
 name = "guft-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "argon2",
  "async-trait",
@@ -2529,7 +2531,7 @@ dependencies = [
 
 [[package]]
 name = "guft-desktop"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "data-encoding",
  "guft-app",
@@ -2544,7 +2546,7 @@ dependencies = [
 
 [[package]]
 name = "guft-harden"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "landlock",
  "libc",
@@ -2555,7 +2557,7 @@ dependencies = [
 
 [[package]]
 name = "guft-net"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "arti-client",
  "futures",
@@ -2584,7 +2586,7 @@ dependencies = [
 
 [[package]]
 name = "guft-store"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "data-encoding",
  "guft-core",

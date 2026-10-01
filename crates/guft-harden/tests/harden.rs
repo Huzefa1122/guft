@@ -1,3 +1,4 @@
+#![cfg(target_os = "linux")]
 //! Restrictions are permanent for a process, so each check runs in a child
 //! process (this same test binary re-invoked with an env var).
 

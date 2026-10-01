@@ -32,6 +32,9 @@ pub struct InviteV1 {
     pub kyber: Vec<u8>,
     pub kyber_sig: Vec<u8>,
     pub identity: Vec<u8>,
+    /// Set when using the invite also joins a room: the person who imports it expects the
+    /// room invitation that follows, so that one needs no extra confirmation.
+    pub room: Option<[u8; 16]>,
 }
 
 impl InviteV1 {

@@ -99,6 +99,7 @@ export function ChatView({ onSafety }: { onSafety: () => void }) {
             <button onClick={() => setMembers(true)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
               <UsersRound className="size-3.5" /> {current.members.length + 1} member{current.members.length + 1 === 1 ? "" : "s"}
               {temp && " · temporary"}
+              {current.identity && ` · you are ${current.identity}`}
             </button>
           ) : (
             <button onClick={onSafety} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
@@ -234,6 +235,8 @@ export function ChatView({ onSafety }: { onSafety: () => void }) {
                 : confirm === "leave"
                   ? direct
                     ? "The chat and its messages disappear from both devices. You can start a new temporary chat any time."
+                    : current.identity
+                    ? "You stop receiving room messages and this conversation is deleted. The separate identity you used here is erased completely: its keys and Tor address are destroyed."
                     : "You stop receiving room messages and this conversation is deleted from this device. You can only return with a new invite."
                   : "All messages in this chat are deleted from this device. Others keep their own copy."}
             </DialogDescription>

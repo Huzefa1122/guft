@@ -18,6 +18,10 @@ const MAGIC: &[u8; 4] = b"NCV2";
 /// 64 MiB, 3 passes, 1 lane.
 const M_KIB: u32 = 64 * 1024;
 const T_COST: u32 = 3;
+/// For a secret that is already 256 bits of randomness (a generated key, never a human
+/// passphrase): stretching only has to be nonzero, so keep it cheap.
+const LIGHT_M_KIB: u32 = 8 * 1024;
+const LIGHT_T_COST: u32 = 1;
 /// Upper bounds for parameters read from a (possibly tampered) file.
 const MAX_M_KIB: u32 = 512 * 1024;
 const MAX_T_COST: u32 = 12;
@@ -50,6 +54,15 @@ pub struct Vault {
 impl Vault {
     /// A new vault with a fresh random salt.
     pub fn create(passphrase: &str) -> Result<Self> {
+        Self::create_with(passphrase, M_KIB, T_COST)
+    }
+
+    /// A vault for a random 256-bit secret, not for a human passphrase (cheap to open).
+    pub fn create_for_random_secret(secret: &str) -> Result<Self> {
+        Self::create_with(secret, LIGHT_M_KIB, LIGHT_T_COST)
+    }
+
+    fn create_with(passphrase: &str, m_kib: u32, t_cost: u32) -> Result<Self> {
         if passphrase.chars().count() < MIN_PASSPHRASE_CHARS {
             return Err(Error::Invalid("passphrase too short"));
         }
@@ -57,10 +70,10 @@ impl Vault {
         rand::rngs::OsRng.unwrap_err().fill_bytes(&mut salt);
         let mut header = [0u8; HEADER];
         header[..4].copy_from_slice(MAGIC);
-        header[4..8].copy_from_slice(&M_KIB.to_be_bytes());
-        header[8..12].copy_from_slice(&T_COST.to_be_bytes());
+        header[4..8].copy_from_slice(&m_kib.to_be_bytes());
+        header[8..12].copy_from_slice(&t_cost.to_be_bytes());
         header[12..].copy_from_slice(&salt);
-        let master = stretch(passphrase.as_bytes(), &salt, M_KIB, T_COST)?;
+        let master = stretch(passphrase.as_bytes(), &salt, m_kib, t_cost)?;
         Ok(Self { header, master })
     }
 
@@ -82,6 +95,18 @@ impl Vault {
             .decrypt(&XNonce::from(nonce), Payload { msg: &file[HEADER + 24..], aad: &vault.header })
             .map_err(|_| Error::Vault)?;
         Ok((vault, Zeroizing::new(plain)))
+    }
+
+    /// Open another file sealed by this same vault (same header), without stretching again.
+    pub fn open(&self, file: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
+        if file.len() < HEADER + 24 + 16 || file[..HEADER] != self.header {
+            return Err(Error::Vault);
+        }
+        let nonce: [u8; 24] = file[HEADER..HEADER + 24].try_into().map_err(|_| Error::Vault)?;
+        let key = self.subkey("state");
+        let cipher = XChaCha20Poly1305::new_from_slice(&*key).map_err(|_| Error::Vault)?;
+        let plain = cipher.decrypt(&XNonce::from(nonce), Payload { msg: &file[HEADER + 24..], aad: &self.header }).map_err(|_| Error::Vault)?;
+        Ok(Zeroizing::new(plain))
     }
 
     /// Encrypt `plaintext` for storage, with a fresh random nonce each time.

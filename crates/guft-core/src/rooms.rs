@@ -355,6 +355,17 @@ impl Engine {
                 if *kind == RoomKind::Direct && creator != from {
                     return Err(Error::Invalid("room invite is inconsistent"));
                 }
+                // One temporary chat per contact is enough; more would only crowd out real rooms.
+                // A new one from the same contact means the old one is dead (they restarted or
+                // locked and lost it), so it is replaced.
+                if *kind == RoomKind::Direct {
+                    let stale: Vec<String> =
+                        self.temp.iter().filter(|(_, t)| t.kind == RoomKind::Direct && t.room.members.contains_key(from)).map(|(k, _)| k.clone()).collect();
+                    for old in stale {
+                        self.temp.remove(&old);
+                        fx.events.push(RoomEvent::Removed { room: old });
+                    }
+                }
                 let me = self.my_id().to_owned();
                 let roster: BTreeMap<String, RoomMember> = members
                     .iter()

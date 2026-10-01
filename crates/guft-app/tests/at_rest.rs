@@ -72,6 +72,12 @@ fn fully_connected(p: &Peer, others: usize) -> bool {
 }
 
 
+/// Wait for `room`'s invitation to reach `p` and accept it.
+async fn accept(p: &Peer, room: &str) {
+    eventually("the invitation arrives", || p.app.room_invitations().is_ok_and(|v| v.iter().any(|i| i.room == room))).await;
+    p.app.accept_room_invite(room).unwrap();
+}
+
 /// Alice and Bob become contacts: `joiner` imports an invite from `inviter`.
 async fn befriend(joiner: &mut Peer, inviter: &mut Peer) {
     let (invite, code) = inviter.app.new_invite("friend", HOUR).unwrap();
@@ -140,11 +146,13 @@ async fn no_conversation_content_is_ever_readable_on_disk() {
     alice.app.send_file(&bob_in_alice, "voice-1790000000-7s.webm", vec![0x1a, 0x45, 0xdf, 0xa3, 1, 2, 3]).await.unwrap();
     let room = alice.app.create_room("ROOMNAME-MARKER-heist", true).unwrap();
     alice.app.add_contact_to_room(&room, &bob_in_alice).unwrap();
+    accept(&bob, &room).await;
     eventually("bob in room", || fully_connected(&bob, 1) && fully_connected(&alice, 1)).await;
     alice.app.send_room_text(&room, T3).await.unwrap();
     let temp = alice.app.create_temp_room("TEMPROOM-MARKER-ghost", true).unwrap();
     // Bob is a contact already: add him straight in.
     alice.app.add_contact_to_room(&temp, &bob_in_alice).unwrap();
+    accept(&bob, &temp).await;
     eventually("bob in temp room", || bob.app.rooms().is_ok_and(|r| r.iter().any(|x| x.id == temp))).await;
     alice.app.send_room_text(&temp, T4).await.unwrap();
     eventually("everything arrived", || {
@@ -196,7 +204,7 @@ async fn file_bytes_returns_exactly_what_was_sent_and_refuses_everything_else() 
     assert!(alice.app.file_bytes(text_id).is_err());
     assert!(alice.app.file_bytes(9_999_999).is_err());
     assert!(alice.app.file_bytes(-1).is_err());
-    assert!(alice.app.file_bytes(1 << 62).is_err());
+    assert!(alice.app.file_bytes(1 << 40).is_err());
 
     // Locked: nothing is served.
     alice.app.lock().await.unwrap();

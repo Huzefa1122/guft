@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Copy, Loader2, Share2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { api, errorText, type Invite } from "@/lib/api";
@@ -109,16 +110,40 @@ function Use({ done }: { done: () => void }) {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const ok = invite.trim().length > 20 && code.replace(/\W/g, "").length >= 12;
+  const [isRoom, setIsRoom] = useState(false);
+  const [separate, setSeparate] = useState(false);
+  const [alias, setAlias] = useState("");
+  const ok = invite.trim().length > 20 && code.replace(/\W/g, "").length >= 12 && (!separate || alias.trim().length > 0);
+
+  // Only a room invite can be used with a separate identity.
+  useEffect(() => {
+    const text = invite.trim();
+    if (text.length < 20) {
+      setIsRoom(false);
+      return;
+    }
+    let live = true;
+    api.inviteIsRoom(text).then((r) => live && setIsRoom(r)).catch(() => live && setIsRoom(false));
+    return () => {
+      live = false;
+    };
+  }, [invite]);
+  useEffect(() => {
+    if (!isRoom) setSeparate(false);
+  }, [isRoom]);
 
   async function add() {
     setBusy(true);
     setError("");
     try {
-      const id = await api.addContact(invite.trim(), code.trim());
+      const id = await api.addContact(invite.trim(), code.trim(), separate ? alias.trim() : undefined);
       await refresh();
-      select(id);
-      toast("Contact added. They'll appear once their app accepts.");
+      if (separate) {
+        toast("Joining as a separate identity. The room appears once the host's app lets you in.");
+      } else {
+        select(id);
+        toast("Contact added. They'll appear once their app accepts.");
+      }
       done();
     } catch (e) {
       setError(errorText(e));
@@ -137,9 +162,28 @@ function Use({ done }: { done: () => void }) {
         <label htmlFor="code" className="mb-1.5 block text-sm font-medium">One-time code</label>
         <Input id="code" value={code} onChange={(e) => setCode(e.target.value)} placeholder="xxxx-xxxx-xxxx" className="font-mono" autoComplete="off" spellCheck={false} />
       </div>
+      {isRoom && (
+        <div className="space-y-3 rounded-lg border p-3">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <label htmlFor="join-separate" className="text-sm font-medium">Join as a separate identity</label>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                A new name, new keys and a new Tor address just for this room. Nothing links it to you elsewhere, and it is erased when you leave.
+              </p>
+            </div>
+            <Switch id="join-separate" checked={separate} onCheckedChange={setSeparate} />
+          </div>
+          {separate && (
+            <div>
+              <label htmlFor="join-alias" className="mb-1.5 block text-sm font-medium">Your name in this room</label>
+              <Input id="join-alias" value={alias} maxLength={48} onChange={(e) => setAlias(e.target.value)} placeholder="e.g. Mask" />
+            </div>
+          )}
+        </div>
+      )}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       <Button className="w-full" onClick={() => void add()} disabled={!ok || busy}>
-        {busy ? <Loader2 className="size-4 animate-spin" /> : <UserPlus className="size-4" />} Add contact
+        {busy ? <Loader2 className="size-4 animate-spin" /> : <UserPlus className="size-4" />} {isRoom ? "Join room" : "Add contact"}
       </Button>
     </div>
   );

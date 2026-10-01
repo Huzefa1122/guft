@@ -37,11 +37,15 @@ export type Room = {
   temp: boolean;
   /** A one-to-one temporary chat; `name` is the other person's name. */
   direct: boolean;
+  /** The separate identity you appear as in this room (its name), or null for your main one. */
+  identity: string | null;
   members: RoomMember[];
   last: Message | null;
   unread: number;
 };
 export type Invite = { invite: string; code: string };
+/** A contact asked you to join a room. Nothing has happened, and nobody there knows you, until you accept. */
+export type RoomInvitation = { room: string; from: string; fromName: string; name: string; members: string[]; temp: boolean; ts: number };
 export type AppEvent =
   | { type: "unlocked" }
   | { type: "locked" }
@@ -52,7 +56,8 @@ export type AppEvent =
   | { type: "delivered"; chat: string; msgId: number }
   | { type: "sendFailed"; chat: string; msgId: number }
   | { type: "roomChanged"; room: string }
-  | { type: "roomRemoved"; room: string };
+  | { type: "roomRemoved"; room: string }
+  | { type: "roomInvited"; room: string };
 
 export const MAX_FILE_BYTES = 1_000_000;
 
@@ -68,8 +73,11 @@ export interface Api {
   markRead(contact: string): Promise<void>;
   sendText(contact: string, text: string): Promise<number>;
   sendFile(contact: string, name: string, dataB64: string): Promise<number>;
-  createRoom(name: string, openInvites: boolean, temp?: boolean): Promise<string>;
+  createRoom(name: string, openInvites: boolean, temp?: boolean, identity?: string): Promise<string>;
   startTempChat(contact: string): Promise<string>;
+  roomInvitations(): Promise<RoomInvitation[]>;
+  acceptRoomInvite(room: string): Promise<string>;
+  declineRoomInvite(room: string): Promise<void>;
   roomInvite(room: string, label: string, ttlMinutes: number): Promise<Invite>;
   addToRoom(room: string, contact: string): Promise<void>;
   leaveRoom(room: string): Promise<void>;
@@ -78,7 +86,9 @@ export interface Api {
   sendRoomText(room: string, text: string): Promise<number>;
   sendRoomFile(room: string, name: string, dataB64: string): Promise<number>;
   newInvite(label: string, ttlMinutes: number): Promise<Invite>;
-  addContact(invite: string, code: string): Promise<string>;
+  addContact(invite: string, code: string, identity?: string): Promise<string>;
+  /** Whether an invite leads into a room (only those can be used with a separate identity). */
+  inviteIsRoom(invite: string): Promise<boolean>;
   safetyNumber(contact: string): Promise<string>;
   setVerified(contact: string, verified: boolean): Promise<void>;
   removeContact(contact: string): Promise<void>;
@@ -105,8 +115,11 @@ const real: Api = {
   markRead: (contact) => invoke("mark_read", { contact }),
   sendText: (contact, text) => invoke("send_text", { contact, text }),
   sendFile: (contact, name, data) => invoke("send_file", { contact, name, data }),
-  createRoom: (name, openInvites, temp) => invoke("create_room", { name, openInvites, temp: temp ?? false }),
+  createRoom: (name, openInvites, temp, identity) => invoke("create_room", { name, openInvites, temp: temp ?? false, identity: identity ?? null }),
   startTempChat: (contact) => invoke("start_temp_chat", { contact }),
+  roomInvitations: () => invoke("room_invitations"),
+  acceptRoomInvite: (room) => invoke("accept_room_invite", { room }),
+  declineRoomInvite: (room) => invoke("decline_room_invite", { room }),
   roomInvite: (room, label, ttlMinutes) => invoke("room_invite", { room, label, ttlMinutes }),
   addToRoom: (room, contact) => invoke("add_to_room", { room, contact }),
   leaveRoom: (room) => invoke("leave_room", { room }),
@@ -115,7 +128,8 @@ const real: Api = {
   sendRoomText: (room, text) => invoke("send_room_text", { room, text }),
   sendRoomFile: (room, name, data) => invoke("send_room_file", { room, name, data }),
   newInvite: (label, ttlMinutes) => invoke("new_invite", { label, ttlMinutes }),
-  addContact: (invite, code) => invoke("add_contact", { invite, code }),
+  addContact: (invite, code, identity) => invoke("add_contact", { invite, code, identity: identity ?? null }),
+  inviteIsRoom: (invite) => invoke("invite_is_room", { invite }),
   safetyNumber: (contact) => invoke("safety_number", { contact }),
   setVerified: (contact, verified) => invoke("set_verified", { contact, verified }),
   removeContact: (contact) => invoke("remove_contact", { contact }),
