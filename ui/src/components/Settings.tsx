@@ -8,6 +8,7 @@ import { api, errorText } from "@/lib/api";
 import { useApp, type Theme } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
+import { IntroVideo } from "./IntroVideo";
 
 const IDLE = [1, 5, 15, 30, 60];
 const THEMES: { id: Theme; label: string; icon: typeof Sun }[] = [
@@ -94,6 +95,12 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">Contacts reach you here. It's hidden from anyone who hasn't been invited.</p>
+        </section>
+
+        <Separator />
+        <section className="space-y-2">
+          <h3 className="text-sm font-medium">Intro</h3>
+          <IntroVideo />
         </section>
 
         <Separator />

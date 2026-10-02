@@ -63,7 +63,7 @@ export function Sidebar({ onAdd, onAddRoom, onSettings }: { onAdd: () => void; o
   }, [convs, q]);
 
   return (
-    <aside className="flex h-full w-[360px] shrink-0 flex-col border-r bg-sidebar">
+    <aside className={cn("flex h-full w-full shrink-0 flex-col border-r bg-sidebar md:w-[360px]", selected && "max-md:hidden")}>
       <header className="flex h-16 shrink-0 items-center justify-between px-4">
         <Brand />
         <div className="flex items-center gap-0.5">

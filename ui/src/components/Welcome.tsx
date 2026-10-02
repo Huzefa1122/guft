@@ -7,6 +7,7 @@ import { strength } from "@/lib/format";
 import { useApp } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Brand } from "./Brand";
+import { IntroVideo } from "./IntroVideo";
 
 const LABELS = ["Too short", "Weak", "Okay", "Good", "Strong"];
 const COLORS = ["bg-destructive", "bg-destructive", "bg-amber-500", "bg-primary", "bg-primary"];
@@ -36,8 +37,9 @@ export function Welcome() {
   }
 
   return (
-    <div className="grid h-full place-items-center overflow-auto bg-background p-6">
-      <form onSubmit={submit} className="w-full max-w-md rounded-2xl border bg-card p-8 shadow-sm">
+    <div className="h-full overflow-auto bg-background p-6">
+     <div className="mx-auto flex min-h-full w-full max-w-md flex-col justify-center gap-4">
+      <form onSubmit={submit} className="w-full rounded-2xl border bg-card p-8 shadow-sm">
         <div className="mb-6 flex flex-col items-center gap-2 text-center">
           <Brand size="lg" />
           <p className="text-sm text-muted-foreground">Private chat with no servers, no accounts and no phone numbers.</p>
@@ -74,6 +76,11 @@ export function Welcome() {
           {busy ? "Creating…" : "Create my identity"}
         </Button>
       </form>
+      <div className="space-y-2">
+        <p className="text-center text-xs text-muted-foreground">New here? Watch the 35 second intro.</p>
+        <IntroVideo />
+      </div>
+     </div>
     </div>
   );
 }

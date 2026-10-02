@@ -176,6 +176,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const select = useCallback(
     (id: string | null) => {
+      // On a phone a chat is a second screen: give the system back button something to go back to.
+      if (id && selectedRef.current === null) window.history.pushState({ guft: 1 }, "");
       setSelected(id);
       setMessages([]);
       setHasMore(false);
@@ -269,6 +271,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
       off?.();
     };
   }, [loadConvs, loadMessages, refresh, toast]);
+
+  // The system back button (phones) closes the open chat.
+  useEffect(() => {
+    const onPop = () => {
+      setSelected(null);
+      setMessages([]);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  // Hidden (app switched away, screen off, window minimised) for a minute: lock.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onVis = () => {
+      if (document.hidden) {
+        timer = setTimeout(() => void api.lock().catch(() => {}), 60_000);
+      } else if (timer) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
 
   // User activity keeps the vault open; idle time relocks it (enforced in Rust).
   useEffect(() => {

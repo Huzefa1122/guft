@@ -269,7 +269,7 @@ pub async fn send_room_file(state: TauriState<'_, State>, room: String, name: St
 /// Saves a received file into the downloads folder; returns where it went.
 #[tauri::command]
 pub fn save_file(state: TauriState<'_, State>, msg_id: i64) -> Res<String> {
-    let dir = crate::sandbox::Dirs::resolve().downloads;
+    let dir = state.downloads.clone();
     state.hub.save_file(msg_id, &dir).map(|p| p.display().to_string()).map_err(msg)
 }
 

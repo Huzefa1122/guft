@@ -5,6 +5,11 @@ edition.workspace = true
 license.workspace = true
 default-run = "guft"
 
+[lib]
+# The same code runs as the desktop app (through `main.rs`) and as the Android app (as a library).
+name = "guft_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [[bin]]
 name = "guft"
 path = "src/main.rs"

@@ -57,7 +57,7 @@ export function Bubble({ m, first, senderName, showSender = false }: { m: Messag
           <DropdownMenuTrigger asChild>
             <button
               className={cn(
-                "absolute top-0.5 right-1 z-10 hidden size-6 place-items-center rounded-full opacity-70 hover:opacity-100 focus-visible:grid group-hover/bubble:grid data-[state=open]:grid",
+                "absolute top-0.5 right-1 z-10 hidden size-6 place-items-center rounded-full opacity-70 hover:opacity-100 focus-visible:grid group-hover/bubble:grid data-[state=open]:grid [@media(hover:none)]:grid",
                 m.outgoing ? "bg-bubble-out" : "bg-bubble-in",
               )}
               aria-label="Message options"

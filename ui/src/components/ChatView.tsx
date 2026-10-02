@@ -1,5 +1,5 @@
 import { Fragment, useLayoutEffect, useRef, useState } from "react";
-import { Lock, MessageSquareDashed, MoreVertical, Pencil, ShieldAlert, ShieldCheck, Trash2, UserMinus, UserPlus, UsersRound } from "lucide-react";
+import { ArrowLeft, Lock, MessageSquareDashed, MoreVertical, Pencil, ShieldAlert, ShieldCheck, Trash2, UserMinus, UserPlus, UsersRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -87,7 +87,10 @@ export function ChatView({ onSafety }: { onSafety: () => void }) {
 
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col">
-      <header className="flex h-16 shrink-0 items-center gap-3 border-b bg-card px-4">
+      <header className="flex h-16 shrink-0 items-center gap-3 border-b bg-card px-4 max-md:gap-2 max-md:px-2">
+        <Button variant="ghost" size="icon" className="shrink-0 md:hidden" onClick={() => window.history.back()} aria-label="Back to chats">
+          <ArrowLeft className="size-5" />
+        </Button>
         {room ? <RoomAvatar name={name} temp={temp} className="size-10" /> : <ContactAvatar id={current.id} name={name} className="size-10" />}
         <div className="min-w-0 flex-1">
           <h2 className="truncate font-medium">{name}</h2>
