@@ -4,9 +4,7 @@ Serverless, Tor-based, post-quantum end-to-end encrypted chat: text and files (u
 
 Work in progress; not independently audited. Do not rely on it for safety yet.
 
-[![guft in 35 seconds: no company, no server, no phone number, no account in the middle of your chat](docs/guft.jpg)](docs/guft.mp4)
-
-*A 35 second intro (click to play).*
+https://github.com/user-attachments/assets/5dcab984-d9b4-4cfc-ae30-0560f42a6b39
 
 Licensed under AGPL-3.0-only. Built on Signal's `libsignal` (not affiliated with or endorsed by Signal).
 
